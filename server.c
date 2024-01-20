@@ -42,12 +42,10 @@ void graceful_termination()
 void checkSignal(int signo)
 {
      if (signo == SIGINT) {
-        printf("Received SIGINT (Ctrl+C). Cleaning up...\n");
         graceful_termination();
     }
 
     else if (signo == SIGTERM) {
-        printf("Received SIGTERM. Cleaning up...\n");
         graceful_termination();
     }
 }
@@ -82,7 +80,6 @@ void* listen_for_signals_thread_function(void* arg)
     }
 }
 
-//Thread for client operation
 void* handle_connection(void* cSocket)
 {
     pthread_mutex_lock(&active_clients);
@@ -99,13 +96,12 @@ void* handle_connection(void* cSocket)
     nr_active_clients--;
     pthread_cond_signal(&cond);
     pthread_mutex_unlock(&active_clients);
-    close(*clientSocket); //termin conexiunea cu clientul de care se ocupa thread-ul asta
+    close(*clientSocket);
 }
 
 int main()
 {
     mainThread = pthread_self();
-    //+ thread pentru prindere semnale
     printf("PID OF SERVER IS %d\n", getpid());
     sigemptyset(&mask);
     sigaddset(&mask, SIGTERM);
@@ -123,9 +119,11 @@ int main()
     epfd = epoll_create(2);
     int flags = fcntl(epfd, F_GETFL, 0);
     fcntl(epfd, F_SETFL, flags | O_NONBLOCK);
+    /*
     ev.data.fd = listenSocket;
     ev.events = EPOLLIN;
     epoll_ctl(epfd, EPOLL_CTL_ADD, listenSocket, &ev);
+    */
     ev.events = EPOLLIN;
     ev.data.fd = STDIN_FILENO;
     epoll_ctl(epfd, EPOLL_CTL_ADD, STDIN_FILENO, &ev);
@@ -137,9 +135,9 @@ int main()
     {
         int clientAddrLength = sizeof(clientAddr);
         clientSocket = accept(listenSocket, (struct sockaddr*)&clientAddr, &clientAddrLength);
-        printf("New connection from client socket!\n");
         if(nr_active_clients < MAX_CLIENTS)
         {
+            printf("New connection from client socket!\n");
             pthread_create(&threads[nr_active_clients], NULL, handle_connection, &clientSocket);
         }
         else
