@@ -17,5 +17,4 @@
 #define SEARCH 0x20
 //Extra
 #define MAX_THREADS 10
-#define MAX_CLIENTS_REACHED "Max clients reached!\n"
 #define MAX_CLIENTS 2
