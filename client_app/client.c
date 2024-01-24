@@ -147,6 +147,24 @@ int main(int argc, char const* argv[])
                 valread = recv(client_fd, &val, sizeof(int), 0);
                 printf("0x%x\n", val);
             }
+            else if(strcmp(args, "UPDATE") == 0)
+            {
+                args = strtok(NULL, " \n;");
+                int nr_octeti_cale = strlen(args);
+                send(client_fd, &nr_octeti_cale, sizeof(int), 0);
+                send(client_fd, args, nr_octeti_cale, 0);
+                args = strtok(NULL, " \n;");
+                int octet_start = atoi(args);
+                send(client_fd, &octet_start, sizeof(int), 0);
+                args = strtok(NULL, " \n;");
+                int dimensiune = atoi(args);
+                send(client_fd, &dimensiune, sizeof(int), 0);
+                args = strtok(NULL, " \n;");
+                send(client_fd, args, dimensiune, 0);
+                int val;
+                valread = recv(client_fd, &val, sizeof(int), 0);
+                printf("0x%x\n", val);
+            }
             else
             {
                 int val;
