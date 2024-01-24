@@ -252,6 +252,7 @@ void* handle_connection(void* cSocket)
             char buffer[1024];
             recv(clientSocket, buffer, 1024, 0);
             int fd = -1;
+            pthread_mutex_lock(&filesMutex);
             for(int i = 0; i < nr_files; i++)
             {
                 if(strcmp(buffer, files[i].cale) == 0)
@@ -294,7 +295,132 @@ void* handle_connection(void* cSocket)
                 close(update);
                 remove(buffer);
                 unlink(buffer);
+                close(fd);
             }
+            pthread_mutex_unlock(&filesMutex);
+        }
+        else if(strcmp(buff, "MOVE") == 0)
+        {
+            int nr_octeti_cale_sursa;
+            recv(clientSocket, &nr_octeti_cale_sursa, sizeof(int), 0);
+            char cale_sursa[1024], cale_destinatie[1024];
+            recv(clientSocket, cale_sursa, nr_octeti_cale_sursa, 0);
+            int nr_octeti_cale_destinatie;
+            recv(clientSocket, &nr_octeti_cale_destinatie, sizeof(int), 0);
+            recv(clientSocket, cale_destinatie, nr_octeti_cale_destinatie, 0);
+            int fd = -1;
+            pthread_mutex_lock(&filesMutex);
+            for(int i = 0; i < nr_files; i++)
+            {
+                if(strcmp(cale_sursa, files[i].cale) == 0)
+                {
+                    fd = open(cale_sursa, O_RDONLY);
+                    break;
+                }
+            }
+            if(fd == -1)
+            {
+                int response = RESPONSE_FILE_NOT_FOUND;
+                send(clientSocket, &response, sizeof(RESPONSE_FILE_NOT_FOUND), 0);
+            }
+            else
+            {
+                char* copy = strdup(cale_destinatie);
+                char* lastSlash = strrchr(copy, '/');
+                if(lastSlash !=  NULL)
+                {
+                    *lastSlash = '\0';
+                    char* token = strtok(copy, "/");//TODO sa fie thread-safe
+                    char cale_construita[1024] = "";
+                    while(token)
+                    {
+                        strcat(cale_construita, token);
+                        strcat(cale_construita, "/");
+                        mkdir(cale_construita, 0777);
+                        token = strtok(NULL, "/");
+                    }
+                    free(copy);
+                }
+                int fd_move = open(cale_destinatie, O_WRONLY);
+                if(fd_move != -1)
+                {
+                    int response = RESPONSE_PERMISSION_DENIED;
+                    send(clientSocket, &response, sizeof(int), 0);
+                }
+                else
+                {
+                    int response = RESPONSE_SUCCES;
+                    send(clientSocket, &response, sizeof(int), 0);
+                    close(fd_move);
+                    fd_move = open(cale_destinatie, O_WRONLY | O_CREAT, 0777);
+                    struct stat status;
+                    fstat(fd, &status);
+                    sendfile(fd_move, fd, 0, status.st_size);
+                    close(fd_move);
+                    remove(cale_sursa);
+                    unlink(cale_sursa);
+                    for(int i = 0; i < nr_files; i++)
+                    {
+                        if(strcmp(files[i].cale, cale_sursa) == 0)
+                        {
+                            memset(files[i].cale, 0, files[i].nr_octeti_cale);
+                            strcpy(files[i].cale, cale_destinatie);
+                            files[i].nr_octeti_cale = nr_octeti_cale_destinatie;
+                            break;
+                        }
+                    }
+                    int update = open("fisiere.txt", O_WRONLY | O_TRUNC);
+                    for(int i = 0; i < nr_files; i++)
+                    {
+                        if(i != nr_files - 1)
+                        {
+                            write(update, files[i].cale, files[i].nr_octeti_cale);
+                            write(update, "\n", 1);
+                        }
+                        else write(update, files[i].cale, files[i].nr_octeti_cale);
+                    }
+                    close(update);
+                }
+
+            }
+            pthread_mutex_unlock(&filesMutex);
+        }
+        else if(strcmp(buff, "UPDATE") == 0)
+        {
+            int nr_octeti_cale;
+            recv(clientSocket, &nr_octeti_cale, sizeof(int), 0);
+            char cale[1024];
+            recv(clientSocket, cale, nr_octeti_cale, 0);
+            int octet_start;
+            recv(clientSocket, &octet_start, sizeof(int), 0);
+            int dimensiune;
+            recv(clientSocket, &dimensiune, sizeof(int), 0);
+            char caractere_noi[1024];
+            recv(clientSocket, caractere_noi, dimensiune, 0);
+            int fd = -1;
+            pthread_mutex_lock(&filesMutex);
+            for(int i = 0; i < nr_files; i++)
+            {
+                if(strcmp(cale, files[i].cale) == 0)
+                {
+                    fd = open(cale, O_WRONLY);
+                    break;
+                }
+            }
+            if(fd == -1)
+            {
+                int response = RESPONSE_FILE_NOT_FOUND;
+                send(clientSocket, &response, sizeof(RESPONSE_FILE_NOT_FOUND), 0);
+            }
+            else
+            {
+                lseek(fd, octet_start, SEEK_SET);
+                write(fd, caractere_noi, dimensiune);
+                close(fd);
+                int response = RESPONSE_SUCCES;
+                send(clientSocket, &response, sizeof(RESPONSE_SUCCES), 0);
+            }
+            pthread_mutex_unlock(&filesMutex);
         }
         else
         {
@@ -325,17 +451,12 @@ int main()
     setsockopt(listenSocket, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt));
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_addr.s_addr = INADDR_ANY;
-    serverAddr.sin_port = htons(8080);
+    serverAddr.sin_port = htons(PORT);
     bind(listenSocket, (struct sockaddr*)&serverAddr, sizeof(serverAddr));
     listen(listenSocket, 10);
     epfd = epoll_create(2);
     int flags = fcntl(epfd, F_GETFL, 0);
     fcntl(epfd, F_SETFL, flags | O_NONBLOCK);
-    /*
-    ev.data.fd = listenSocket;
-    ev.events = EPOLLIN;
-    epoll_ctl(epfd, EPOLL_CTL_ADD, listenSocket, &ev);
-    */
     ev.events = EPOLLIN;
     ev.data.fd = STDIN_FILENO;
     epoll_ctl(epfd, EPOLL_CTL_ADD, STDIN_FILENO, &ev);

@@ -1,3 +1,4 @@
+#define PORT 8080
 //Raspunsuri server
 #define RESPONSE_SUCCES 0x0
 #define RESPONSE_FILE_NOT_FOUND 0x1
