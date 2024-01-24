@@ -18,3 +18,5 @@
 //Extra
 #define MAX_THREADS 10
 #define MAX_CLIENTS 2
+#define ACK 0xFF
+#define ACK_OK 0xFE

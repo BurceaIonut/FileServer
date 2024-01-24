@@ -1,3 +1,6 @@
 fis1.txt
 fis2.txt
 dir1/fis3.txt
+dir1/dir2/fis4.txt
+random.txt
+fis5.txt

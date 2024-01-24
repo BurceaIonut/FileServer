@@ -132,8 +132,10 @@ void* handle_connection(void* cSocket)
     //TODO
     //procesare cereri
     char* save_ptr;
-    if(buff[0] != '\n')
+    if(buff[0] != '\0')
     {
+        int ack = ACK_OK;
+        send(clientSocket, &ack, sizeof(int), 0);
         if(strcmp(buff, "LIST") == 0)
         {
             uint32_t nr_octeti_raspuns = 0;
@@ -190,9 +192,109 @@ void* handle_connection(void* cSocket)
         {
             int nr_octeti_cale;
             recv(clientSocket, &nr_octeti_cale, sizeof(int), 0);
+            char cale[1024];
+            recv(clientSocket, cale, 1024, 0);
+            int nr_octeti_continut;
+            recv(clientSocket, &nr_octeti_continut, sizeof(int), 0);
+            char* content = (char*)malloc((nr_octeti_continut+1) * sizeof(char));
+            recv(clientSocket, content, nr_octeti_continut, 0);
+            int fd = -1;
+            pthread_mutex_lock(&filesMutex);
+            fd = open(cale, O_WRONLY);
+            if(fd == -1)
+            {
+                //TODO de facut sa fie thread-safe
+                char* copy = strdup(cale);
+                char* lastSlash = strrchr(copy, '/');
+                if(lastSlash !=  NULL)
+                {
+                    *lastSlash = '\0';
+                    char* token = strtok(copy, "/");
+                    char cale_construita[1024] = "";
+                    while(token)
+                    {
+                        strcat(cale_construita, token);
+                        strcat(cale_construita, "/");
+                        mkdir(cale_construita, 0777);
+                        token = strtok(NULL, "/");
+                    }
+                    free(copy);
+                }
+                fd = open(cale, O_WRONLY | O_CREAT, 0644);
+                write(fd, content, nr_octeti_continut);
+                close(fd);
+                int response = RESPONSE_SUCCES;
+                send(clientSocket, &response, sizeof(int), 0);
+                nr_files++;
+                fd = open("fisiere.txt", O_WRONLY | O_APPEND);
+                strcpy(cale + 1, cale);
+                cale[0] = '\n';
+                write(fd, cale, nr_octeti_cale + 1);
+                fsync(fd);
+                close(fd);
+                strcpy(files[nr_files - 1].cale, cale + 1);
+                files[nr_files - 1].dimensiune_fisier = nr_octeti_continut;
+                files[nr_files - 1].nr_octeti_cale = nr_octeti_cale;
+                files[nr_files - 1].operatie = 0;
+            }
+            else
+            {
+                int response = RESPONSE_PERMISSION_DENIED;
+                send(clientSocket, &response, sizeof(int), 0);
+            }
+            pthread_mutex_unlock(&filesMutex);
+            free(content);
+        }
+        else if(strcmp(buff, "DELETE") == 0)
+        {
+            int nr_octeti_cale;
+            recv(clientSocket, &nr_octeti_cale, sizeof(int), 0);
             char buffer[1024];
             recv(clientSocket, buffer, 1024, 0);
-            //TODO
+            int fd = -1;
+            for(int i = 0; i < nr_files; i++)
+            {
+                if(strcmp(buffer, files[i].cale) == 0)
+                {
+                    fd = open(buffer, O_RDONLY);
+                    break;
+                }
+            }
+            if(fd < 0)
+            {
+                int response = RESPONSE_FILE_NOT_FOUND;
+                send(clientSocket, &response, sizeof(RESPONSE_FILE_NOT_FOUND), 0);
+            }
+            else
+            {
+                int response = RESPONSE_SUCCES;
+                send(clientSocket, &response, sizeof(RESPONSE_SUCCES), 0);
+                for(int i = 0; i < nr_files; i++)
+                {
+                    if(strcmp(files[i].cale, buffer) == 0)
+                    {
+                        for(int j = i; j < nr_files - 1; j++)
+                        {
+                            files[j] = files[j + 1];
+                        }
+                        nr_files--;
+                        break;
+                    }
+                }
+                int update = open("fisiere.txt", O_WRONLY | O_TRUNC);
+                for(int i = 0; i < nr_files; i++)
+                {
+                    if(i != nr_files - 1)
+                    {
+                        write(update, files[i].cale, files[i].nr_octeti_cale);
+                        write(update, "\n", 1);
+                    }
+                    else write(update, files[i].cale, files[i].nr_octeti_cale);
+                }
+                close(update);
+                remove(buffer);
+                unlink(buffer);
+            }
         }
         else
         {
@@ -252,6 +354,8 @@ int main()
         }
         else
         {
+            int ack = ACK;
+            send(clientSocket, &ack, sizeof(int), 0);
             int response = RESPONSE_SERVER_BUSY;
             send(clientSocket, &response, sizeof(response), 0);
             close(clientSocket);
