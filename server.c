@@ -23,9 +23,10 @@ typedef struct fisier
     int nr_octeti_cale;
     char cale[1024];
     int dimensiune_fisier;
-    int operatie; //1 pentru read si 2 pentru write
+    int operatie;
 }fisier;
 
+char* pool_fisiere;
 int listenSocket, clientSocket;
 struct sockaddr_in serverAddr, clientAddr;
 struct epoll_event ev;
@@ -46,9 +47,37 @@ int terminated;
 int listening = 1;
 int nr_files;
 
+void log_operation(char* operation)
+{
+    time_t t = time(NULL);
+    struct tm tm = *localtime(&t);
+    char* saveptr;
+    char* token = __strtok_r(operation, " ", &saveptr);
+    int fd = open(LOG_FILE, O_WRONLY | O_CREAT | O_APPEND, 0777);
+    int year = tm.tm_year + 1900;
+    int month = tm.tm_mon + 1;
+    int day = tm.tm_mday;
+    int hour = tm.tm_hour;
+    char delimiter = ',';
+    char date_delimiter = ':';
+    char new_line = '\n';
+    char time_info[1024];
+    sprintf(time_info, "%d-%d-%d, %d, ", day, month, year, hour);
+    write(fd, time_info, strlen(time_info));
+    while(token != NULL)
+    {
+        write(fd, token, strlen(token));
+        token = __strtok_r(NULL, " ", &saveptr);
+        if(token != NULL)
+            write(fd, &delimiter, sizeof(char));
+    }
+    write(fd, &new_line, sizeof(char));
+    close(fd);
+}
+
 void getFiles()
 {
-    FILE* f = fopen("fisiere.txt", "r");
+    FILE* f = fopen(pool_fisiere, "r");
     while(!feof(f))
     {
         fgets(files[nr_files].cale, 1024, f);
@@ -129,8 +158,6 @@ void* handle_connection(void* cSocket)
     memset(buff, 0, 1024);
     recv(clientSocket, buff, 1024, 0);
     printf("Client said: %s\n", buff);
-    //TODO
-    //procesare cereri
     char* save_ptr;
     if(buff[0] != '\0')
     {
@@ -138,6 +165,9 @@ void* handle_connection(void* cSocket)
         send(clientSocket, &ack, sizeof(int), 0);
         if(strcmp(buff, "LIST") == 0)
         {
+            char logged_operation[1024];
+            strcat(logged_operation, buff);
+            log_operation(logged_operation);
             uint32_t nr_octeti_raspuns = 0;
             int response = RESPONSE_SUCCES;
             send(clientSocket, &response, sizeof(int), 0);
@@ -155,10 +185,15 @@ void* handle_connection(void* cSocket)
         }
         else if(strcmp(buff, "DOWNLOAD") == 0)
         {
+            char logged_operation[1024];
+            strcat(logged_operation, buff);
             int nr_octeti_cale;
             recv(clientSocket, &nr_octeti_cale, sizeof(int), 0);
             char buffer[1024];
             recv(clientSocket, buffer, 1024, 0);
+            strcat(logged_operation, " ");
+            strcat(logged_operation, buffer);
+            log_operation(logged_operation);
             pthread_mutex_lock(&filesMutex);
             int fd = -1;
             for(int i = 0; i < nr_files; i++)
@@ -190,10 +225,14 @@ void* handle_connection(void* cSocket)
         }
         else if(strcmp(buff, "UPLOAD") == 0)
         {
+            char logged_operation[1024];
+            strcat(logged_operation, buff);
             int nr_octeti_cale;
             recv(clientSocket, &nr_octeti_cale, sizeof(int), 0);
             char cale[1024];
             recv(clientSocket, cale, 1024, 0);
+            strcat(logged_operation, cale);
+            log_operation(logged_operation);
             int nr_octeti_continut;
             recv(clientSocket, &nr_octeti_continut, sizeof(int), 0);
             char* content = (char*)malloc((nr_octeti_continut+1) * sizeof(char));
@@ -226,7 +265,7 @@ void* handle_connection(void* cSocket)
                 int response = RESPONSE_SUCCES;
                 send(clientSocket, &response, sizeof(int), 0);
                 nr_files++;
-                fd = open("fisiere.txt", O_WRONLY | O_APPEND);
+                fd = open(pool_fisiere, O_WRONLY | O_APPEND);
                 strcpy(cale + 1, cale);
                 cale[0] = '\n';
                 write(fd, cale, nr_octeti_cale + 1);
@@ -247,10 +286,15 @@ void* handle_connection(void* cSocket)
         }
         else if(strcmp(buff, "DELETE") == 0)
         {
+            char logged_operation[1024];
+            strcat(logged_operation, buff);
             int nr_octeti_cale;
             recv(clientSocket, &nr_octeti_cale, sizeof(int), 0);
             char buffer[1024];
             recv(clientSocket, buffer, 1024, 0);
+            strcat(logged_operation, " ");
+            strcat(logged_operation, buffer);
+            log_operation(logged_operation);
             int fd = -1;
             pthread_mutex_lock(&filesMutex);
             for(int i = 0; i < nr_files; i++)
@@ -282,7 +326,7 @@ void* handle_connection(void* cSocket)
                         break;
                     }
                 }
-                int update = open("fisiere.txt", O_WRONLY | O_TRUNC);
+                int update = open(pool_fisiere, O_WRONLY | O_TRUNC);
                 for(int i = 0; i < nr_files; i++)
                 {
                     if(i != nr_files - 1)
@@ -301,10 +345,15 @@ void* handle_connection(void* cSocket)
         }
         else if(strcmp(buff, "MOVE") == 0)
         {
+            char logged_operation[1024];
+            strcat(logged_operation, buff);
             int nr_octeti_cale_sursa;
             recv(clientSocket, &nr_octeti_cale_sursa, sizeof(int), 0);
             char cale_sursa[1024], cale_destinatie[1024];
             recv(clientSocket, cale_sursa, nr_octeti_cale_sursa, 0);
+            strcat(logged_operation, " ");
+            strcat(logged_operation, cale_sursa);
+            log_operation(logged_operation);
             int nr_octeti_cale_destinatie;
             recv(clientSocket, &nr_octeti_cale_destinatie, sizeof(int), 0);
             recv(clientSocket, cale_destinatie, nr_octeti_cale_destinatie, 0);
@@ -369,7 +418,7 @@ void* handle_connection(void* cSocket)
                             break;
                         }
                     }
-                    int update = open("fisiere.txt", O_WRONLY | O_TRUNC);
+                    int update = open(pool_fisiere, O_WRONLY | O_TRUNC);
                     for(int i = 0; i < nr_files; i++)
                     {
                         if(i != nr_files - 1)
@@ -387,10 +436,15 @@ void* handle_connection(void* cSocket)
         }
         else if(strcmp(buff, "UPDATE") == 0)
         {
+            char logged_operation[1024];
+            strcat(logged_operation, buff);
             int nr_octeti_cale;
             recv(clientSocket, &nr_octeti_cale, sizeof(int), 0);
             char cale[1024];
             recv(clientSocket, cale, nr_octeti_cale, 0);
+            strcat(logged_operation, " ");
+            strcat(logged_operation, cale);
+            log_operation(logged_operation);
             int octet_start;
             recv(clientSocket, &octet_start, sizeof(int), 0);
             int dimensiune;
@@ -435,8 +489,14 @@ void* handle_connection(void* cSocket)
     close(clientSocket);
 }
 
-int main()
+int main(int argc, char* argv[])
 {
+    if(argc != 2)
+    {
+        perror("Dati fisierul cu caile disponibile catre clienti!\n");
+        exit(1);
+    }
+    pool_fisiere = argv[1];
     getFiles();
     int clientAddrLength = sizeof(clientAddr);
     mainThread = pthread_self();
